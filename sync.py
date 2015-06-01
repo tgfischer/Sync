@@ -1,7 +1,7 @@
 import sublime, sublime_plugin, socket, threading, time
 from threading import Thread
 
-PORT = 3003
+PORT = 3001
 TIMEOUT = 5
 
 class SyncCommand(sublime_plugin.TextCommand):		
@@ -10,7 +10,6 @@ class SyncCommand(sublime_plugin.TextCommand):
 		thread = ClientThread(self.view, TIMEOUT)
 
 		thread.start()
-
 
 class ServerThread(threading.Thread):
 	def __init__(self, edit, view, timeout):
@@ -22,22 +21,24 @@ class ServerThread(threading.Thread):
 
 	def run(self):
 		serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		serversocket.bind(('localhost', PORT))
-		serversocket.listen(5) # become a server socket, maximum 5 connections
 
-		print("Server started")
+		try:
+			serversocket.bind(('localhost', PORT))
+			serversocket.listen(5) # become a server socket, maximum 5 connections
 
-		while True:
+			print("Server started")
+
 			connection, address = serversocket.accept()
-			self.text = connection.recv(1024)
 
-			if len(self.text) > 0:
-				sublime.set_timeout(self.callback, 1)
+			print("Client found")
 
-	def callback(self):
-		region = sublime.Region(0, self.view.size())
-		self.view.replace(self.edit, region, self.text)
+			while True:
+				self.text = connection.recv(1024)
 
+				if len(self.text) > 0:
+					self.view.run_command("update_file", { "text" : str(self.text) } )
+		except socket.error as ex:
+			serversocket.close()
 
 class ClientThread(threading.Thread):
 	def __init__(self, view, timeout):
@@ -50,11 +51,20 @@ class ClientThread(threading.Thread):
 		print("Client started. Looking for a server...")
 
 		clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		clientsocket.connect(('localhost', PORT))
 
-		print("Connected!")
+		try:
+			clientsocket.connect(('localhost', PORT))
 
-		while True:
-			region = sublime.Region(0, self.view.size())
-			clientsocket.send(bytes(str(self.view.substr(region)), 'UTF-8'))
-			time.sleep(1)
+			print("Connected!")
+
+			while True:
+				region = sublime.Region(0, self.view.size())
+				clientsocket.send(bytes(str(self.view.substr(region)), 'UTF-8'))
+				time.sleep(1)
+		except socket.error as ex:
+			clientsocket.close()
+
+class UpdateFileCommand(sublime_plugin.TextCommand):
+	def run(self, edit, **args):
+		region = sublime.Region(0, self.view.size())
+		self.view.replace(edit, region, args["text"])
